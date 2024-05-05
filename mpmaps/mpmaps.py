@@ -12,6 +12,8 @@ from spok import smath as sm
 from spok.coordinates import coordinates as scc
 from spok import utils as su
 
+from scipy.interpolate import RegularGridInterpolator
+
 
 class MPMap:
     def __init__(self, **kwargs):
@@ -87,16 +89,28 @@ class MPMap:
         rotation_angle = (
             np.radians(self._clock) - np.pi / 2
         )  # pi/2 for standard orientation of
-        new_xmp, new_ymp, new_zmp = scc.rotates_from_phi_angle(
+
+        _, ymp_rot, zmp_rot = scc.rotates_from_phi_angle(
             self._Xmp, self._Ymp, self._Zmp, rotation_angle
         )
-        bx_new, by_new, bz_new = scc.rotates_from_phi_angle(
+
+        bx_rot, by_rot, bz_rot = scc.rotates_from_phi_angle(
             bxmsh, bymsh, bzmsh, rotation_angle
         )
-        bxmsh, bymsh, bzmsh = [
-            su.regular_grid_interpolation(new_ymp, new_zmp, b, self.Y, self.Z)
-            for b in [bx_new, by_new, bz_new]
+
+        YY, ZZ = np.meshgrid(ymp_rot, zmp_rot, indexing="ij")
+
+        b_interp = [
+            RegularGridInterpolator((ymp_rot, zmp_rot), b)
+            for b in (bx_rot, by_rot, bz_rot)
         ]
+
+        return [b(YY, ZZ) for b in b_interp]
+
+        # bxmsh, bymsh, bzmsh = [
+        #    su.regular_grid_interpolation(new_ymp, new_zmp, b, self.Y, self.Z)
+        #    for b in [bx_new, by_new, bz_new]
+        # ]
         return bxmsh, bymsh, bzmsh
 
     def _remove_normal_to_shue98(self, bxmsh, bymsh, bzmsh):
