@@ -77,13 +77,24 @@ class MPMap:
         return bxmsh, bymsh, bzmsh
 
     def _bmsh_for_negative_cone_angle(self, bxmsh, bymsh, bzmsh):
-        bxmsh, bzmsh = [
-            su.regular_grid_interpolation(
-                -self._Ymp, self._Zmp, [-b], self._Ymp, self._Zmp
-            )
-            for b in [bxmsh, bzmsh]
+
+        b_interp = [
+            RegularGridInterpolator((-self._Ymp, self._Zmp), -b) for b in [bxmsh, bzmsh]
         ]
-        return bxmsh, bymsh, bzmsh
+        new_b = [
+            b_interp[0](self._Ymp, self._Zmp),
+            b_interp[1](self._Ymp, self._Zmp),
+            bzmsh,
+        ]
+
+        #        bxmsh, bzmsh = [
+        #            su.regular_grid_interpolation(
+        #                -self._Ymp, self._Zmp, [-b], self._Ymp, self._Zmp
+        #            )
+        #            for b in [bxmsh, bzmsh]
+        #        ]
+        #        return bxmsh, bymsh, bzmsh
+        return new_b
 
     def _rotates_bmsh(self, bxmsh, bymsh, bzmsh):
         rotation_angle = (
@@ -98,14 +109,14 @@ class MPMap:
             bxmsh, bymsh, bzmsh, rotation_angle
         )
 
-        YY, ZZ = np.meshgrid(ymp_rot, zmp_rot, indexing="ij")
+        #        YY, ZZ = np.meshgrid(ymp_rot, zmp_rot, indexing="ij")
 
         b_interp = [
             RegularGridInterpolator((ymp_rot, zmp_rot), b)
             for b in (bx_rot, by_rot, bz_rot)
         ]
 
-        return [b(YY, ZZ) for b in b_interp]
+        return [b(self.Y, self.Z) for b in b_interp]
 
         # bxmsh, bymsh, bzmsh = [
         #    su.regular_grid_interpolation(new_ymp, new_zmp, b, self.Y, self.Z)
@@ -122,9 +133,11 @@ class MPMap:
     def _processing_nmsh(self):
         nmsh = self._grid_nmsh[str(abs(self._cone))]
         if self._cone < 0:
-            nmsh = su.regular_grid_interpolation(
-                -self._Ymp, self._Zmp, nmsh, self._Ymp, self._Zmp
-            )
+            n_interp = RegularGridInterpolator((-self._Ymp, self._Zmp), nmsh)
+            nmsh = n_interp(self._Ymp, self._Zmp)
+        #            nmsh = su.regular_grid_interpolation(
+        #                -self._Ymp, self._Zmp, nmsh, self._Ymp, self._Zmp
+        #            )
         nmsh = self._rotates_nmsh(nmsh)
         nmsh = su.nan_gaussian_filter(nmsh, (20, 20))
         nmsh = nmsh * self._nsw
@@ -137,7 +150,10 @@ class MPMap:
         new_xmp, new_ymp, new_zmp = scc.rotates_from_phi_angle(
             self._Xmp, self._Ymp, self._Zmp, rotation_angle
         )
-        return su.regular_grid_interpolation(new_ymp, new_zmp, nmsh, self.Y, self.Z)
+        n_interp = RegularGridInterpolator((new_ymp, new_zmp), nmsh)
+        return n_interp(self.Y, self.Z)
+
+    #        return su.regular_grid_interpolation(new_ymp, new_zmp, nmsh, self.Y, self.Z)
 
     def set_parameters(self, **kwargs):
         if "tilt" in kwargs:
