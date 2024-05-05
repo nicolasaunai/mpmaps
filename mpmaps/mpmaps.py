@@ -5,6 +5,7 @@ from scipy.optimize import root
 from platformdirs import user_data_dir
 from .globals import grids
 import os
+import matplotlib.pyplot as plt
 
 
 from spok.models import planetary as smp
@@ -17,6 +18,29 @@ from scipy.interpolate import RegularGridInterpolator
 
 class MPMap:
     def __init__(self, **kwargs):
+        """
+        Keyword arguments:
+        ------------------
+
+        clock: float, (default:-90)
+                IMF clock angle in degrees, 0 is due north
+
+        cone: float, (default: 55)
+                IMF cone angle in degrees, 0 is radial IMF
+
+        tilt: float, (default: 0)
+                Dipole tilt axis
+
+        bimf: float, (default: 5)
+                IMF amplitude in nT
+
+        nws: float (default 5)
+                solar wind density, in cm^-3
+
+        mp_thick: float, (default 800)
+                Magnetopause thickness in km
+                only used for computing the current density
+        """
         self._grid_path = os.path.join(user_data_dir(), "mpmaps")
         self._clock = kwargs.get("clock", -90)
         self._cone = kwargs.get("cone", 55)
@@ -34,9 +58,11 @@ class MPMap:
             np.linspace(-22, 22, self._nz),
             indexing="xy",
         )  # hard coded for now
-        self.X = su.regular_grid_interpolation(
-            self._Ymp, self._Zmp, self._Xmp, self.Y, self.Z
-        )
+        x_interp = RegularGridInterpolator((self._Ymp, self._Zmp), self._Xmp)
+        self.X = x_interp(self.Y, self.Z)
+        #        self.X = su.regular_grid_interpolation(
+        #            self._Ymp, self._Zmp, self._Xmp, self.Y, self.Z
+        #        )
         self._grid_bmsp = pd.read_pickle(
             os.path.join(self._grid_path, grids[1])
         )  #'mp_b_msp.pkl'
@@ -83,8 +109,8 @@ class MPMap:
         ]
         new_b = [
             b_interp[0](self._Ymp, self._Zmp),
+            bymsh,
             b_interp[1](self._Ymp, self._Zmp),
-            bzmsh,
         ]
 
         #        bxmsh, bzmsh = [
@@ -147,7 +173,7 @@ class MPMap:
         rotation_angle = (
             np.radians(self._clock) - np.pi / 2
         )  # pi/2 for standard orientation of
-        new_xmp, new_ymp, new_zmp = scc.rotates_from_phi_angle(
+        _, new_ymp, new_zmp = scc.rotates_from_phi_angle(
             self._Xmp, self._Ymp, self._Zmp, rotation_angle
         )
         n_interp = RegularGridInterpolator((new_ymp, new_zmp), nmsh)
@@ -243,6 +269,57 @@ class MPMap:
         v = np.sqrt((b2 * n1 + b1 * n2) * (b1 + b2))
         R = k * u / v
         return R
+
+    def plot(self, **kwargs):
+        """
+        Keyword arguments
+        -----------------
+
+        value : string ("shear_angle":default, "reconnection_rate", "current_density")
+                the quantity that is plotted
+
+        xlim : tuple, lower bound of the plot area
+        ylim : tuple, upper bound of the plot area
+        filename : string, file name to save the figure on disk
+
+        other keywork arguments: see MPMap
+
+        example : mp.plot(value="shear_angle", tilt=14, xlim=(-18,18), ylim=(-18,18))
+        """
+
+        if "ax" in kwargs:
+            ax = kwargs["ax"]
+            fig = ax.get_figure()
+        else:
+            fig, ax = plt.subplots()
+
+        msh = smp.Magnetosheath()
+        phi = np.arange(0, np.pi * 2 + 0.1, 0.1)
+        theta = np.pi / 2
+        _, y, z = msh.magnetopause(theta, phi)
+        ax.plot(y, z, ls="--", color="k")
+
+        xmin, xmax = kwargs.get("xlim", (self.Y.min(), self.Y.max()))
+        ymin, ymax = kwargs.get("ylim", (self.Z.min(), self.Z.max()))
+
+        ax.set_xlim((xmin, xmax))
+        ax.set_ylim((ymin, ymax))
+        ax.set_xlabel(r"$Y/R_e$")
+        ax.set_ylabel(r"$Z/R_e$")
+
+        self.set_parameters(**kwargs)
+        val = kwargs.get("value", "shear_angle")
+        sa = getattr(self, val)()
+
+        ax.pcolormesh(self.Y, self.Z, sa, cmap="jet")
+        ax.axvline(0, ls="--", color="k")
+        ax.axhline(0, ls="--", color="k")
+        ax.set_aspect("equal")
+
+        if "filename" in kwargs:
+            fig.savefig(kwargs["filename"])
+
+        return fig, ax
 
     def _find_rec_angle_max_rate(self):
         def _dRR_dtheta_local(theta, params):
